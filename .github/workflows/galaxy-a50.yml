@@ -1,5 +1,8 @@
 name: Stable Release Build (Galaxy A50)
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
