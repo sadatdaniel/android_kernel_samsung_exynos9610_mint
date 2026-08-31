@@ -181,7 +181,7 @@ BUILD_KERNEL() {
     case "$BUILD_PREF_COMPILER_VERSION" in
     proton)
         make -C "$TOP" CC="$BUILD_PREF_COMPILER" HOSTCC=clang HOSTCXX=clang++ AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip "$BUILD_DEVICE_TMP_CONFIG" LOCALVERSION="$LOCALVERSION" 2>&1 | sed 's/^/     /'
-        make -C "$TOP" CC="$BUILD_PREF_COMPILER" HOSTCC=clang HOSTCXX=clang++ AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip -j$JOBS LOCALVERSION="$LOCALVERSION" 2>&1 | sed 's/^/     /'
+        make -C "$TOP" CC="$BUILD_PREF_COMPILER" HOSTCC=clang HOSTCXX=clang++ AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip KCFLAGS=-Wno-error -j$JOBS LOCALVERSION="$LOCALVERSION" 2>&1 | sed 's/^/     /'
         ;;
     clang)
         make -C "$TOP" CC="$BUILD_PREF_COMPILER" LLVM=1 "$BUILD_DEVICE_TMP_CONFIG" LOCALVERSION="$LOCALVERSION" 2>&1 | sed 's/^/     /'
@@ -493,6 +493,42 @@ if $BUILD_KERNEL_PERMISSIVE; then
 	script_echo "         This kernel has NO RESPONSIBILITY on whatever happens next."
 	merge_config selinux-permissive
 fi
+
+# Disable Samsung integrity/anti-exploit subsystems (debug patch, not upstream)
+# NOTE on VT/FRAMEBUFFER_CONSOLE (re-investigated later, see docs/display.md):
+# the original crash was CONFIG_FRAMEBUFFER_CONSOLE (fbcon) specifically, not
+# CONFIG_VT itself - confirmed by reading decon_notify.c: decon only hooks the
+# fbdev notifier chain (fb_register_client), which is only ever driven by
+# fbcon activity (blank/mode-change events), never by bare VT/dummy-console
+# switching. grep -rl register_vt_notifier across the whole dpu20 driver tree
+# found nothing - no direct VT hook exists in this driver at all. CONFIG_VT=y
+# alone (letting CONFIG_VT_CONSOLE and CONFIG_DUMMY_CONSOLE auto-select via
+# their own Kconfig defaults) never touches decon's registered notifier.
+# CONFIG_FRAMEBUFFER_CONSOLE is deliberately NOT re-added here - that is the
+# one still confirmed to crash.
+{
+    echo "# CONFIG_FIVE is not set"
+    echo "# CONFIG_PROCA is not set"
+    echo "# CONFIG_SECURITY_DEFEX is not set"
+    echo "CONFIG_FHANDLE=y"
+    echo "CONFIG_CGROUP_PIDS=y"
+    echo "CONFIG_CGROUP_DEVICE=y"
+    echo "CONFIG_IPC_NS=y"
+    echo "CONFIG_SYSVIPC=y"
+    echo "CONFIG_USER_NS=y"
+    echo "CONFIG_VT=y"
+    echo "CONFIG_BRIDGE=y"
+    echo "CONFIG_BRIDGE_NETFILTER=y"
+    echo "CONFIG_VETH=y"
+    echo "CONFIG_VLAN_8021Q=y"
+    echo "CONFIG_MACVLAN=y"
+    echo "CONFIG_NETFILTER_XT_TARGET_CHECKSUM=y"
+    echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
+    echo "CONFIG_NF_NAT_IPV6=y"
+    echo "CONFIG_IP6_NF_NAT=y"
+    echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
+    echo 'CONFIG_CMDLINE="quiet androidboot.init_fatal_panic=true androidboot.init_fatal_reboot_target=recovery rcu_nocbs=0-3 noirqdebug nosoftlockup mce=ignore_ce cgroup_disable=pressure systemd.unified_cgroup_hierarchy=0"'
+} >> "$BUILD_CONFIG_DIR/$BUILD_DEVICE_TMP_CONFIG"
 
 # Build Mint
 BUILD_KERNEL
