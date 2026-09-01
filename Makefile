@@ -375,6 +375,14 @@ HOSTCFLAGS   := -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 \
 		-fomit-frame-pointer -std=gnu89 $(HOST_LFS_CFLAGS)
 HOSTCXXFLAGS := -O2 $(HOST_LFS_CFLAGS)
 HOSTLDFLAGS  := $(HOST_LFS_LDFLAGS)
+# Hermetic LLVM builds (the Ubuntu Touch adaptation tools set LLVM=1 and
+# a PATH with no GNU ld) cannot link single-file host programs: 4.14 kbuild
+# never passes HOSTLDFLAGS to the host-csingle rule and clang otherwise
+# invokes plain "ld", which does not exist there. Together with the
+# scripts/Makefile.host change, make every host link use lld in that mode.
+ifeq ($(LLVM),1)
+HOSTLDFLAGS += -fuse-ld=lld --rtlib=compiler-rt
+endif
 HOST_LOADLIBES := $(HOST_LFS_LIBS)
 
 # Make variables (CC, etc...)
