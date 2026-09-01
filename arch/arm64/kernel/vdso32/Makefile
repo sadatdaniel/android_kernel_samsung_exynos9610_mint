@@ -5,7 +5,13 @@
 # A mix between the arm64 and arm vDSO Makefiles.
 
 ifeq ($(cc-name),clang)
-  CC_ARM32 := $(CC) $(CLANG_TARGET_ARM32) -no-integrated-as $(CLANG_GCC32_TC) $(CLANG_PREFIX32)
+  ifeq ($(LLVM_IAS),1)
+    # Hermetic LLVM builds (Ubuntu Touch adaptation tools) have no GNU as on
+    # PATH and --gcc-toolchain resolves to nothing; use the integrated one.
+    CC_ARM32 := $(CC) $(CLANG_TARGET_ARM32) $(CLANG_GCC32_TC) $(CLANG_PREFIX32)
+  else
+    CC_ARM32 := $(CC) $(CLANG_TARGET_ARM32) -no-integrated-as $(CLANG_GCC32_TC) $(CLANG_PREFIX32)
+  endif
 else
   CC_ARM32 := $(CROSS_COMPILE_ARM32)$(cc-name)
 endif
@@ -95,6 +101,12 @@ VDSO_LDFLAGS := $(VDSO_CPPFLAGS)
 VDSO_LDFLAGS += -Wl,-Bsymbolic -Wl,--no-undefined -Wl,-soname=linux-vdso.so.1
 VDSO_LDFLAGS += -Wl,-z,max-page-size=4096 -Wl,-z,common-page-size=4096
 VDSO_LDFLAGS += -nostdlib -shared -mfloat-abi=soft
+# The link goes through the clang driver, whose default linker (ld) does
+# not exist in a hermetic LLVM PATH; use lld there like the rest of the
+# build (the 64-bit vDSO already links via $(LD)=ld.lld directly).
+ifeq ($(LLVM_IAS),1)
+VDSO_LDFLAGS += -fuse-ld=lld
+endif
 VDSO_LDFLAGS += $(call cc32-ldoption,-Wl$(comma)--hash-style=sysv)
 VDSO_LDFLAGS += $(call cc32-ldoption,-Wl$(comma)--build-id)
 VDSO_LDFLAGS += $(call cc32-ldoption,-fuse-ld=bfd)
