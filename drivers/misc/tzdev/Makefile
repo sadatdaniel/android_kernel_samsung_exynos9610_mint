@@ -56,10 +56,13 @@ ccflags-y += -I$(srctree)
 
 # ThinLTO builds additionally RE-assemble that inline asm at link time,
 # with the linker running from the object tree - where the repo-relative
-# paths do not resolve and the resulting parse error aborts the link.
-# Drop copies of the blobs into the object tree at the same relative
-# path so the link-time lookup succeeds.
-$(obj)/startup.tzar $(obj)/startup_old.tzar: $(obj)/%.tzar: $(srctree)/$(src)/%.tzar
-	cp $< $@
-
-$(obj)/tz_deploy_tzar.o: $(obj)/startup.tzar $(obj)/startup_old.tzar
+# paths do not resolve and the resulting parse error aborts the link
+# (misreported as a segfault). Drop copies of the blobs into the object
+# tree at the same relative path so the link-time lookup succeeds.
+#
+# Done as a parse-time copy rather than a make rule: a pattern rule for
+# files inside $(obj) that also appear as prerequisites of $(obj) targets
+# gets discarded by make as a circular dependency under O= builds, and
+# the link then fails exactly the same way (observed 2026-09-01).
+$(shell mkdir -p $(obj) 2>/dev/null)
+$(shell for _b in startup.tzar startup_old.tzar; do 	test -f $(obj)/$$_b || cp $(srctree)/$(src)/$$_b $(obj)/$$_b 2>/dev/null; 	done)
