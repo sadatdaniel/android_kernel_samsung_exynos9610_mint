@@ -17,6 +17,10 @@ TFA98XX_FLAGS           := -DUSE_TFA9872
 #ccflags-y               += -I$(TFA_SRC_DIR)/inc
 ccflags-y               := -I$(TFA_SRC_DIR)/inc
 ccflags-y               += -Werror
+# clang warns (-Wignored-optimization-argument) about the GCC-only flags
+# below under this -Werror; keep the build working with the LLVM toolchain
+# the Ubuntu Touch adaptation tools use.
+ccflags-y               += -Wno-error=ignored-optimization-argument
 ifdef TFADSP_32BITS
 ccflags-y               += -DTFADSP_32BITS
 endif
