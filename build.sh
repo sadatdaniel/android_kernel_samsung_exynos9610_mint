@@ -221,7 +221,7 @@ BUILD_RAMDISK() {
     script_echo "Compression type: $comptype"
 
     cd "$TOP/tools/make/ramdisk" || exit
-    find . | cpio -R 0:0 -H newc --quiet -o | $compcmd > "$TOP/tools/make/$RAMDISK"
+    find . | LC_ALL=C sort | cpio -R 0:0 -H newc --renumber-inodes --quiet -o | $compcmd > "$TOP/tools/make/$RAMDISK"
     cd "$TOP" || exit
 
     if [ ! -f "$TOP/tools/make/$RAMDISK" ]; then
