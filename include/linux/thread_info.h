@@ -150,12 +150,14 @@ check_copy_size(const void *addr, size_t bytes, bool is_source)
 {
 	int sz = __compiletime_object_size(addr);
 	if (unlikely(sz >= 0 && sz < bytes)) {
-		if (!__builtin_constant_p(bytes))
-			copy_overflow(sz, bytes);
-		else if (is_source)
-			__bad_copy_from();
-		else
-			__bad_copy_to();
+		/* __bad_copy_from/__bad_copy_to are compile-time-only sentinels
+		 * with no definition; clang under ThinLTO can mis-evaluate
+		 * __compiletime_object_size across TUs and actually emit the
+		 * call, breaking the final link (seen: undefined __bad_copy_from
+		 * referenced from snd_ctl_ioctl_compat with clang r383902).
+		 * Always take the runtime WARN instead.
+		 */
+		copy_overflow(sz, bytes);
 		return false;
 	}
 	check_object_size(addr, bytes, is_source);
