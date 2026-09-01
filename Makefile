@@ -272,6 +272,7 @@ else
 scripts/Kbuild.include: ;
 include scripts/Kbuild.include
 
+
 # Read KERNELRELEASE from include/config/kernel.release (if it exists)
 KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
 KERNELVERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION)
@@ -390,6 +391,9 @@ CPP		= $(CC) -E
 ifneq ($(LLVM),)
 CC		= clang
 LD		= ld.lld
+LDLLD		= ld.lld
+LLVMNM		= llvm-nm
+LLVMOBJCOPY	= llvm-objcopy
 LDGOLD		= ld.gold
 AR		= llvm-ar
 NM		= llvm-nm
@@ -781,6 +785,12 @@ KBUILD_CFLAGS += -Os
 endif
 
 ifeq ($(cc-name),clang)
+# The tree's own build.sh passes KCFLAGS=-Wno-error for every clang build
+# (the Proton invocation); without it clang's -Wunused-command-line-argument
+# under -Werror turns the redundant -march/-mcpu pair below into a fatal
+# error. Carry the same behaviour for bare-make builds, e.g. the Ubuntu
+# Touch adaptation tools.
+KBUILD_CFLAGS += -Wno-error
 ifeq ($(CONFIG_SOC_EXYNOS9610), y)
 KBUILD_CFLAGS	+= -march=armv8-a+crypto+crc+sha2+aes -mtune=cortex-a53 \
 			-mcpu=cortex-a53+crypto+crc+sha2+aes
@@ -1439,6 +1449,7 @@ else ifdef CONFIG_LTO_GCC
   endif
 endif
 # Make sure compiler supports LTO flags
+
 ifdef lto-flags
   ifeq ($(call cc-option, $(lto-flags)),)
 	@echo Cannot use CONFIG_LTO: $(lto-flags) not supported by compiler \
