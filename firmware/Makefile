@@ -100,3 +100,10 @@ targets := $(patsubst $(obj)/%,%, \
 # Without this, built-in.o won't be created when it's empty, and the
 # final vmlinux link will fail.
 obj- := dummy
+
+# The generated %.gen.S files .incbin their blobs with paths relative to
+# the source root. GNU as found them from the cwd of in-tree builds; the
+# integrated assembler resolves .incbin from the build cwd, which for
+# O= builds is the object tree - put the source root on the assembler
+# include path so both resolve.
+asflags-y += -I$(srctree)
