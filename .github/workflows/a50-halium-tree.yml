@@ -1,0 +1,56 @@
+name: a50 Halium kernel tree
+
+# Materialise the exact a50-halium kernel source (FreshROMs pin + patch series +
+# generated config) as a normal branch, so the conventional UBports build.sh can
+# build it from deviceinfo_kernel_source. The Image must match the
+# hardware-tested candidate byte for byte before anything is pushed.
+on:
+  push:
+    branches: [halium-a50-tools]
+
+permissions:
+  contents: write
+
+env:
+  A50_HALIUM_COMMIT: 3dd2ca082701d9637eefbd2fe8f4d50c3f4cef09
+  EXPECTED_IMAGE: 6d000a98b274162cb9b452ab6c1a301151d9e0be9d683bec9d1e0875668ab453
+  TREE_BRANCH: halium-a50-aa17rf2
+  ARGS: >-
+    --profile full --runtime-firmware --apparmor ubports --watchdog-freezer-fix
+    --usb-otg-sleep-fix --usb-otg-core-reinit --wifi-sleep-fix --usb-configfs-fix
+    --bluetooth-protocols --usb-supply-events --usb-pullup-state-fix
+
+jobs:
+  tree:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Reclaim runner disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+
+      - name: Build with a50-halium, keeping the patched tree
+        run: |
+          set -euo pipefail
+          git clone -q https://github.com/sadatdaniel/a50-halium h
+          git -C h checkout -q --detach "$A50_HALIUM_COMMIT"
+          docker build -q -t a50-halium-build h/build
+          docker run --rm -v "$PWD/h:/src" -w /src a50-halium-build ./build/build-kernel.sh --keep-src $ARGS
+          echo "$EXPECTED_IMAGE  h/out/Image" | sha256sum -c -
+
+      - name: Commit the tree and push the branch
+        run: |
+          set -euo pipefail
+          sudo chown -R "$(id -u):$(id -g)" h/kernel/src
+          cd h/kernel/src
+          # The build's own config, minus nothing: it already has EXTRA_FIRMWARE="".
+          cp .config arch/arm64/configs/halium_a50_defconfig
+          printf '%s\n' /toolchain/ /out/ /.a50-patched >> .git/info/exclude
+          git config user.name "a50 kernel tree"
+          git config user.email "noreply@users.noreply.github.com"
+          git checkout -q -b "$TREE_BRANCH"
+          git add -A
+          git commit -q -m "a50 Halium tree: a50-halium $A50_HALIUM_COMMIT, runtime firmware" \
+            -m "Built Image sha256 $EXPECTED_IMAGE with: $ARGS"
+          git status --short | head
+          git push "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "HEAD:refs/heads/$TREE_BRANCH"
+          git log -1 --format='pushed %H'
