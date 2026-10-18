@@ -57,9 +57,11 @@ C_h	.req	x12
 D_l	.req	x13
 D_h	.req	x14
 
-	.weak memmove
+/* weak memmove as a plain label: a second .globl after .weak is an error for
+ * clang's integrated assembler (upstream: SYM_FUNC_START_WEAK_PI). */
 ENTRY(__memmove)
-ENTRY(memmove)
+	.weak memmove
+memmove:
 	prfm    pldl1strm, [src, #L1_CACHE_BYTES]
 	cmp	dstin, src
 	b.lo	__memcpy
