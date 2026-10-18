@@ -16,6 +16,7 @@ struct android_wifi_priv_cmd {
 	int  total_len;
 };
 
+int slsi_set_host_suspend_mode(struct net_device *dev, int mode);
 int slsi_ioctl(struct net_device *dev, struct ifreq *rq, int cmd);
 int slsi_get_sta_info(struct net_device *dev, char *command, int buf_len);
 struct slsi_ioctl_args *slsi_get_private_command_args(char *buffer, int buf_len, int max_arg_count);

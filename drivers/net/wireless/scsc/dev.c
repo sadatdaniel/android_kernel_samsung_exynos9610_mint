@@ -515,6 +515,12 @@ struct slsi_dev *slsi_dev_attach(struct device *dev, struct scsc_mx *core, struc
 	INIT_WORK(&sdev->recovery_work_on_start, slsi_chip_recovery);
 	INIT_WORK(&sdev->system_error_user_fail_work, slsi_system_error_recovery);
 	INIT_WORK(&sdev->trigger_wlan_fail_work, slsi_trigger_service_failure);
+	/* Publish PM callbacks only after all driver state is initialized. */
+	if (slsi_system_sleep_register(sdev)) {
+		SLSI_ERR(sdev, "failed to register system sleep notifier\n");
+		slsi_dev_detach(sdev);
+		return NULL;
+	}
 	return sdev;
 
 #if CONFIG_SCSC_WLAN_MAX_INTERFACES >= 4
@@ -571,6 +577,8 @@ err_if:
 void slsi_dev_detach(struct slsi_dev *sdev)
 {
 	SLSI_DBG1(sdev, SLSI_INIT_DEINIT, "Remove Device\n");
+	/* Wait for an in-flight notifier before stopping or freeing state. */
+	slsi_system_sleep_unregister(sdev);
 
 	slsi_stop(sdev);
 

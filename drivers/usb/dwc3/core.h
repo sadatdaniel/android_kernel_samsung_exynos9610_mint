@@ -1107,6 +1107,7 @@ struct dwc3 {
 	unsigned		is_fpga:1;
 	unsigned		pending_events:1;
 	unsigned		pullups_connected:1;
+	unsigned		system_sleep_gadget:1;
 	unsigned		setup_packet_pending:1;
 	unsigned		three_stage_setup:1;
 	unsigned		usb3_lpm_capable:1;

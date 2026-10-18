@@ -127,6 +127,7 @@ struct s3c2410_wdt {
 	struct regmap *pmureg;
 	unsigned int cluster;
 	int use_multistage_wdt;
+	bool freezer_wdt_was_enabled;
 	unsigned int disable_reg_val;
 	unsigned int mask_reset_reg_val;
 	unsigned int noncpu_int_reg_val;
@@ -854,10 +855,14 @@ int s3c2410wdt_emergency_multistage_wdt_stop(void)
 
 	spin_lock_irqsave(&s3c_wdt[index]->lock, flags);
 	wtcon = readl(s3c_wdt[index]->reg_base + S3C2410_WTCON);
+	/* The freezer must restore state, not arm an idle watchdog. */
+	s3c_wdt[index]->freezer_wdt_was_enabled =
+		!!(wtcon & S3C2410_WTCON_ENABLE);
 	wtcon &= ~(S3C2410_WTCON_ENABLE | S3C2410_WTCON_INTEN);
 	writel(wtcon, s3c_wdt[index]->reg_base + S3C2410_WTCON);
 	spin_unlock_irqrestore(&s3c_wdt[index]->lock, flags);
-	dev_info(s3c_wdt[index]->dev, "%s\n", __func__);
+	dev_info(s3c_wdt[index]->dev, "%s: was_enabled=%u\n", __func__,
+		 s3c_wdt[index]->freezer_wdt_was_enabled);
 	return 0;
 }
 
@@ -871,6 +876,13 @@ int s3c2410wdt_emergency_multistage_wdt_start(void)
 		return -ENODEV;
 
 	spin_lock_irqsave(&s3c_wdt[index]->lock, flags);
+	if (!s3c_wdt[index]->freezer_wdt_was_enabled) {
+		spin_unlock_irqrestore(&s3c_wdt[index]->lock, flags);
+		dev_info(s3c_wdt[index]->dev, "%s: keeping inactive watchdog stopped\n",
+			 __func__);
+		return 0;
+	}
+	s3c_wdt[index]->freezer_wdt_was_enabled = false;
 	s3c2410wdt_multistage_wdt_stop();
 
 	wtcon = readl(s3c_wdt[index]->reg_base + S3C2410_WTCON);

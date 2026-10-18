@@ -70,6 +70,16 @@ int win_update_log_level = 0;
 module_param(win_update_log_level, int, 0644);
 int dpu_mres_log_level = 0;
 module_param(dpu_mres_log_level, int, 0644);
+
+#if defined(CONFIG_SUPPORT_MASK_LAYER)
+/*
+ * Force the fingerprint HBM mask layer on, for compositors that never set
+ * DECON_WIN_STATE_FINGERPRINT (Ubuntu Touch / Lomiri-Mir). Without it the
+ * optical under-display sensor is never lit and never sees a finger.
+ */
+bool decon_force_mask_layer = false;
+module_param_named(force_mask_layer, decon_force_mask_layer, bool, 0644);
+#endif
 int decon_systrace_enable;
 
 struct decon_device *decon_drvdata[MAX_DECON_CNT];
@@ -2595,6 +2605,9 @@ static bool decon_get_mask_layer(struct decon_device *decon,
 			mask = true;
 		}
 	}
+
+	if (decon_force_mask_layer)
+		mask = true;
 
 	/* normal -> mask set wait_mask_layer_trigger */
 	/* mask -> normal set wait_mask_layer_trigger */

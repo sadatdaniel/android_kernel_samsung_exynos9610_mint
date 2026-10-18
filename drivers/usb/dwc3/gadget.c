@@ -2223,9 +2223,6 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 	struct usb_otg		*otg = &(dwc->dotg->otg);
 	int			ret;
 
-	if (pm_runtime_suspended(dwc->dev))
-		return 0;
-
 	is_on = !!is_on;
 
 	spin_lock_irqsave(&dwc->lock, flags);
@@ -2241,9 +2238,10 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 
 	dwc->softconnect = is_on;
 
-	if (dwc->dotg && !dwc->vbus_session) {
+	if (pm_runtime_suspended(dwc->dev) ||
+	    (dwc->dotg && !dwc->vbus_session)) {
 		spin_unlock_irqrestore(&dwc->lock, flags);
-		/* Need to wait for vbus_session(on) from otg driver */
+		/* Keep pullup intent while the controller is powered off. */
 		return 0;
 	}
 
@@ -4043,14 +4041,17 @@ void dwc3_gadget_exit(struct dwc3 *dwc)
 
 int dwc3_gadget_suspend(struct dwc3 *dwc)
 {
+	int ret;
+
+	/* Caller holds dwc->lock; IRQ synchronization belongs outside it. */
 	if (!dwc->gadget_driver)
 		return 0;
 
-	dwc3_gadget_run_stop(dwc, false, false);
+	ret = dwc3_gadget_run_stop(dwc, false, false);
+	if (ret)
+		return ret;
 	dwc3_disconnect_gadget(dwc);
 	__dwc3_gadget_stop(dwc);
-
-	synchronize_irq(dwc->irq_gadget);
 
 	return 0;
 }

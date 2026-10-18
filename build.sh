@@ -55,7 +55,7 @@ VERSION=$(grep -m 1    VERSION "$TOP/Makefile"    | sed 's/^.*= //g')
 PATCHLEVEL=$(grep -m 1 PATCHLEVEL "$TOP/Makefile" | sed 's/^.*= //g')
 SUBLEVEL=$(grep -m 1   SUBLEVEL "$TOP/Makefile"   | sed 's/^.*= //g')
 
-BUILD_DATE="$(date +%s)"
+BUILD_DATE="${SOURCE_DATE_EPOCH:-$(date +%s)}"
 BUILD_KERNEL_BRANCH="${GITHUB_REF##*/}"
 [[ -z $BUILD_KERNEL_BRANCH ]] && BUILD_KERNEL_BRANCH="user"
 [[ $BUILD_KERNEL_BRANCH == *"android-"* ]] && BUILD_KERNEL_BRANCH="mainline"
@@ -181,7 +181,7 @@ BUILD_KERNEL() {
     case "$BUILD_PREF_COMPILER_VERSION" in
     proton)
         make -C "$TOP" CC="$BUILD_PREF_COMPILER" HOSTCC=clang HOSTCXX=clang++ AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip "$BUILD_DEVICE_TMP_CONFIG" LOCALVERSION="$LOCALVERSION" 2>&1 | sed 's/^/     /'
-        make -C "$TOP" CC="$BUILD_PREF_COMPILER" HOSTCC=clang HOSTCXX=clang++ AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip -j$JOBS LOCALVERSION="$LOCALVERSION" 2>&1 | sed 's/^/     /'
+        make -C "$TOP" CC="$BUILD_PREF_COMPILER" HOSTCC=clang HOSTCXX=clang++ AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip KCFLAGS=-Wno-error -j$JOBS LOCALVERSION="$LOCALVERSION" 2>&1 | sed 's/^/     /'
         ;;
     clang)
         make -C "$TOP" CC="$BUILD_PREF_COMPILER" LLVM=1 "$BUILD_DEVICE_TMP_CONFIG" LOCALVERSION="$LOCALVERSION" 2>&1 | sed 's/^/     /'
@@ -221,7 +221,7 @@ BUILD_RAMDISK() {
     script_echo "Compression type: $comptype"
 
     cd "$TOP/tools/make/ramdisk" || exit
-    find . | cpio -R 0:0 -H newc --quiet -o | $compcmd > "$TOP/tools/make/$RAMDISK"
+    find . | LC_ALL=C sort | cpio -R 0:0 -H newc --renumber-inodes --quiet -o | $compcmd > "$TOP/tools/make/$RAMDISK"
     cd "$TOP" || exit
 
     if [ ! -f "$TOP/tools/make/$RAMDISK" ]; then
@@ -493,6 +493,85 @@ if $BUILD_KERNEL_PERMISSIVE; then
 	script_echo "         This kernel has NO RESPONSIBILITY on whatever happens next."
 	merge_config selinux-permissive
 fi
+
+# Disable Samsung integrity/anti-exploit subsystems (debug patch, not upstream)
+# NOTE on VT/FRAMEBUFFER_CONSOLE (re-investigated later, see docs/display.md):
+# the original crash was CONFIG_FRAMEBUFFER_CONSOLE (fbcon) specifically, not
+# CONFIG_VT itself - confirmed by reading decon_notify.c: decon only hooks the
+# fbdev notifier chain (fb_register_client), which is only ever driven by
+# fbcon activity (blank/mode-change events), never by bare VT/dummy-console
+# switching. grep -rl register_vt_notifier across the whole dpu20 driver tree
+# found nothing - no direct VT hook exists in this driver at all. CONFIG_VT=y
+# alone (letting CONFIG_VT_CONSOLE and CONFIG_DUMMY_CONSOLE auto-select via
+# their own Kconfig defaults) never touches decon's registered notifier.
+# CONFIG_FRAMEBUFFER_CONSOLE is deliberately NOT re-added here - that is the
+# one still confirmed to crash.
+{
+    echo "# CONFIG_FIVE is not set"
+    echo "# CONFIG_PROCA is not set"
+    echo "# CONFIG_SECURITY_DEFEX is not set"
+    echo "CONFIG_FHANDLE=y"
+    echo "CONFIG_CGROUP_PIDS=y"
+    echo "CONFIG_CGROUP_DEVICE=y"
+    echo "CONFIG_IPC_NS=y"
+    echo "CONFIG_SYSVIPC=y"
+    echo "CONFIG_USER_NS=y"
+    echo "CONFIG_VT=y"
+    echo "CONFIG_BRIDGE=y"
+    echo "CONFIG_BRIDGE_NETFILTER=y"
+    echo "CONFIG_VETH=y"
+    echo "CONFIG_VLAN_8021Q=y"
+    echo "CONFIG_MACVLAN=y"
+    echo "CONFIG_NETFILTER_XT_TARGET_CHECKSUM=y"
+    echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
+    echo "CONFIG_NF_NAT_IPV6=y"
+    echo "CONFIG_IP6_NF_NAT=y"
+    echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
+    # Bluetooth (see docs/bluetooth.md and kernel/09-kernel-config-bluetooth.config
+    # in the a50-droidian repo for the full reasoning and the live evidence).
+    #
+    # CONFIG_SCSC_BT=y was ALREADY enabled in this tree and provides /dev/scsc_h4_0,
+    # which Samsung's own android.hardware.bluetooth@1.0-service (confirmed running
+    # in the LXC container, PID 122) drives. What was missing is the LINUX side:
+    # with CONFIG_BT unset there is no AF_BLUETOOTH at all - hciconfig reports
+    # "Can't open HCI socket.: Address family not supported by protocol" - and,
+    # critically, no /dev/vhci. bluebinder, which proxies HCI from the Android HAL
+    # into the Linux stack, therefore died with ENODEV ("Error: code: 19 (No such
+    # device)"). CONFIG_BT_HCIVHCI is the load-bearing option here.
+    #
+    # CONFIG_SCSC_BT_BLUEZ is deliberately left unset: we do NOT want the Samsung
+    # driver registering its own hci device directly with BlueZ and racing the
+    # Android HAL for the same chip. The vendor-HAL path is the one this port uses.
+    echo "CONFIG_BT=y"
+    echo "CONFIG_BT_BREDR=y"
+    echo "CONFIG_BT_LE=y"
+    echo "CONFIG_BT_HCIVHCI=y"
+    echo "CONFIG_BT_RFCOMM=y"
+    echo "CONFIG_BT_RFCOMM_TTY=y"
+    echo "CONFIG_BT_BNEP=y"
+    echo "CONFIG_BT_BNEP_MC_FILTER=y"
+    echo "CONFIG_BT_BNEP_PROTO_FILTER=y"
+    echo "CONFIG_BT_HIDP=y"
+    echo 'CONFIG_CMDLINE="quiet androidboot.init_fatal_panic=true androidboot.init_fatal_reboot_target=recovery rcu_nocbs=0-3 noirqdebug nosoftlockup mce=ignore_ce cgroup_disable=pressure systemd.unified_cgroup_hierarchy=0"'
+    echo 'CONFIG_EXTRA_FIRMWARE=""'
+    echo 'CONFIG_EXTRA_FIRMWARE_DIR="firmware"'
+    echo "# CONFIG_RT_GROUP_SCHED is not set"
+    echo "CONFIG_RFKILL=y"
+    echo "CONFIG_RFKILL_INPUT=y"
+    echo "CONFIG_PM_DEBUG=y"
+    echo "CONFIG_PM_SLEEP_DEBUG=y"
+    echo "CONFIG_PM_ADVANCED_DEBUG=y"
+    echo 'CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder,anbox-binder,anbox-hwbinder,anbox-vndbinder"'
+    echo 'CONFIG_SECURITY=y'
+    echo 'CONFIG_SECURITYFS=y'
+    echo 'CONFIG_SECURITY_NETWORK=y'
+    echo 'CONFIG_SECURITY_PATH=y'
+    echo 'CONFIG_SECURITY_APPARMOR=y'
+    echo 'CONFIG_SECURITY_APPARMOR_HASH=y'
+    echo 'CONFIG_SECURITY_APPARMOR_BOOTPARAM_VALUE=1'
+    echo 'CONFIG_DEFAULT_SECURITY_APPARMOR=y'
+    echo 'CONFIG_DEFAULT_SECURITY="apparmor"'
+} >> "$BUILD_CONFIG_DIR/$BUILD_DEVICE_TMP_CONFIG"
 
 # Build Mint
 BUILD_KERNEL

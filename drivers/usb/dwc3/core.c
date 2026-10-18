@@ -1708,19 +1708,45 @@ static int dwc3_remove(struct platform_device *pdev)
 #ifdef CONFIG_PM
 static int dwc3_suspend_common(struct dwc3 *dwc)
 {
-	unsigned long	flags;
+	unsigned long flags;
+	int ret;
 
 	/* bring to full power */
-	pm_runtime_get_sync(dwc->dev);
+	ret = pm_runtime_get_sync(dwc->dev);
+	if (ret < 0) {
+		pm_runtime_put_noidle(dwc->dev);
+		return ret;
+	}
+	ret = 0;
 
 	switch (dwc->dr_mode) {
 	case USB_DR_MODE_PERIPHERAL:
 		spin_lock_irqsave(&dwc->lock, flags);
-		dwc3_gadget_suspend(dwc);
+		ret = dwc3_gadget_suspend(dwc);
 		spin_unlock_irqrestore(&dwc->lock, flags);
+		synchronize_irq(dwc->irq_gadget);
 		break;
 	case USB_DR_MODE_OTG:
-		dwc3_event_buffers_cleanup(dwc);
+		dwc->system_sleep_gadget = false;
+		if (dwc->dotg) {
+			mutex_lock(&dwc->dotg->fsm.lock);
+			spin_lock_irqsave(&dwc->lock, flags);
+			if (dwc->dotg->otg.state == OTG_STATE_B_PERIPHERAL &&
+			    dwc->gadget_driver && dwc->pullups_connected) {
+				ret = dwc3_gadget_suspend(dwc);
+				if (!ret)
+					dwc->system_sleep_gadget = true;
+			}
+			spin_unlock_irqrestore(&dwc->lock, flags);
+			mutex_unlock(&dwc->dotg->fsm.lock);
+		}
+		/* Neither driver nor role-switch lock may cover this wait. */
+		if (dwc->system_sleep_gadget) {
+			synchronize_irq(dwc->irq_gadget);
+			dev_info(dwc->dev, "system sleep: OTG gadget quiesced\n");
+		}
+		if (!ret)
+			dwc3_event_buffers_cleanup(dwc);
 		break;
 	case USB_DR_MODE_HOST:
 		usb_phy_shutdown(dwc->usb3_phy);
@@ -1735,28 +1761,57 @@ static int dwc3_suspend_common(struct dwc3 *dwc)
 		break;
 	}
 
-	return 0;
+	if (ret)
+		pm_runtime_put_sync(dwc->dev);
+	return ret;
 }
 
 static int dwc3_resume_common(struct dwc3 *dwc)
 {
-	unsigned long	flags;
+	unsigned long flags;
+	int ret = 0;
 
-	/* executing phy_init() twice caused 'ep0out' enable failure in resume.
-	*	don't call dwc3_core_init
-	* ret = dwc3_core_init(dwc);
-	*/
+	/* Preserve the vendor PHY setup; avoid a second phy_init(). */
 	dwc3_event_buffers_setup(dwc);
 
 	switch (dwc->dr_mode) {
 	case USB_DR_MODE_PERIPHERAL:
 		spin_lock_irqsave(&dwc->lock, flags);
-		dwc3_gadget_resume(dwc);
+		ret = dwc3_gadget_resume(dwc);
 		spin_unlock_irqrestore(&dwc->lock, flags);
 		break;
-	/* Applying KC OTG and Role switch driver patch  - e40c2ae,
-		it's difficult to apply the patch because dwc3_resume func was changed in Kernel4.9 */
 	case USB_DR_MODE_OTG:
+		if (dwc->dotg) {
+			mutex_lock(&dwc->dotg->fsm.lock);
+			spin_lock_irqsave(&dwc->lock, flags);
+			if (dwc->system_sleep_gadget &&
+			    dwc->dotg->otg.state == OTG_STATE_B_PERIPHERAL &&
+			    dwc->gadget_driver && dwc->softconnect &&
+			    dwc->vbus_session) {
+				/* Drop existing PHY references before reinitializing.
+				 * PHY operations may sleep. Keep the role mutex,
+				 * but release the IRQ spinlock around them.
+				 */
+				spin_unlock_irqrestore(&dwc->lock, flags);
+				dwc3_core_exit(dwc);
+				ret = dwc3_core_init(dwc);
+				spin_lock_irqsave(&dwc->lock, flags);
+				if (!ret) {
+					dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_DEVICE);
+					/* Recheck binding after the sleeping operations. */
+					if (dwc->gadget_driver && dwc->softconnect &&
+					    dwc->vbus_session)
+						ret = dwc3_gadget_resume(dwc);
+				}
+				dev_info(dwc->dev,
+					 "system sleep: OTG gadget restore result=%d\n", ret);
+			}
+			dwc->system_sleep_gadget = false;
+			spin_unlock_irqrestore(&dwc->lock, flags);
+			mutex_unlock(&dwc->dotg->fsm.lock);
+		} else {
+			dwc->system_sleep_gadget = false;
+		}
 		break;
 	case USB_DR_MODE_HOST:
 	default:
@@ -1764,8 +1819,9 @@ static int dwc3_resume_common(struct dwc3 *dwc)
 		break;
 	}
 
-	return 0;
+	return ret;
 }
+
 #endif /* CONFIG_PM */
 
 #ifdef CONFIG_PM_SLEEP
@@ -1793,8 +1849,6 @@ static int dwc3_resume(struct device *dev)
 	pinctrl_pm_select_default_state(dev);
 
 	ret = dwc3_resume_common(dwc);
-	if (ret)
-		return ret;
 
 	pm_runtime_disable(dev);
 	pm_runtime_set_active(dev);
@@ -1803,7 +1857,7 @@ static int dwc3_resume(struct device *dev)
 	/* Compensate usage count incremented during prepare */
 	pm_runtime_put_sync(dev);
 
-	return 0;
+	return ret;
 }
 #endif /* CONFIG_PM_SLEEP */
 

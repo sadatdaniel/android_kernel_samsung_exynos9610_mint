@@ -117,26 +117,46 @@ static int misc_open(struct inode *inode, struct file *file)
 	int err = -ENODEV;
 	const struct file_operations *new_fops = NULL;
 
+	/*
+	 * a50: call the driver's open() OUTSIDE the global misc_mtx. Stock
+	 * behaviour (mainline 4.14 and later alike) holds the mutex across
+	 * f_op->open, so a driver whose open blocks forever - here: the
+	 * Samsung umts_boot0 modem-boot device, opened by the vendor cass
+	 * daemon before the CP is booted - freezes every misc open on the
+	 * system (mali0, ion, binder, ...), taking the whole display stack
+	 * with it (observed 2026-09-02/03). Lookup stays under the mutex;
+	 * the driver open runs without it.
+	 */
 	mutex_lock(&misc_mtx);
-
+	printk(KERN_ERR "MISCDBG: pid=%d comm=%s GOTLOCK minor=%d\n",
+	       current->pid, current->comm, minor);
 	list_for_each_entry(c, &misc_list, list) {
 		if (c->minor == minor) {
 			new_fops = fops_get(c->fops);
 			break;
 		}
 	}
+	mutex_unlock(&misc_mtx);
+	printk(KERN_ERR "MISCDBG: pid=%d comm=%s DROPPED minor=%d\n",
+	       current->pid, current->comm, minor);
 
 	if (!new_fops) {
-		mutex_unlock(&misc_mtx);
+		printk(KERN_ERR "MISCDBG: pid=%d comm=%s REQMOD minor=%d\n",
+		       current->pid, current->comm, minor);
 		request_module("char-major-%d-%d", MISC_MAJOR, minor);
-		mutex_lock(&misc_mtx);
+		printk(KERN_ERR "MISCDBG: pid=%d comm=%s REQMOD-DONE minor=%d\n",
+		       current->pid, current->comm, minor);
 
+		mutex_lock(&misc_mtx);
+		printk(KERN_ERR "MISCDBG: pid=%d comm=%s GOTLOCK2 minor=%d\n",
+		       current->pid, current->comm, minor);
 		list_for_each_entry(c, &misc_list, list) {
 			if (c->minor == minor) {
 				new_fops = fops_get(c->fops);
 				break;
 			}
 		}
+		mutex_unlock(&misc_mtx);
 		if (!new_fops)
 			goto fail;
 	}
@@ -150,10 +170,13 @@ static int misc_open(struct inode *inode, struct file *file)
 
 	err = 0;
 	replace_fops(file, new_fops);
+	printk(KERN_ERR "MISCDBG: pid=%d comm=%s CALLING-DRIVER-OPEN minor=%d\n",
+	       current->pid, current->comm, minor);
 	if (file->f_op->open)
 		err = file->f_op->open(inode, file);
+	printk(KERN_ERR "MISCDBG: pid=%d comm=%s DRIVER-OPEN-RETURNED minor=%d err=%d\n",
+	       current->pid, current->comm, minor, err);
 fail:
-	mutex_unlock(&misc_mtx);
 	return err;
 }
 

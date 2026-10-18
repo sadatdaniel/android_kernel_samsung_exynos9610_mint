@@ -1709,10 +1709,10 @@ int fimc_is_sensor_open(struct fimc_is_device_sensor *device,
 
 	core = device->private_data;
 
-	if (test_bit(FIMC_IS_SENSOR_OPEN, &device->state)) {
+	if (test_and_set_bit(FIMC_IS_SENSOR_OPEN, &device->state)) {
 		merr("already open", device);
 		ret = -EMFILE;
-		goto err_open_state;
+		goto err_already_open;
 	}
 
 	/*
@@ -1824,6 +1824,8 @@ err_flite_open:
 err_csi_open:
 err_camif_open:
 err_open_state:
+	clear_bit(FIMC_IS_SENSOR_OPEN, &device->state);
+err_already_open:
 	minfo("[SEN:D] %s():%d\n", device, __func__, ret);
 	return ret;
 
@@ -1914,6 +1916,13 @@ int fimc_is_sensor_close(struct fimc_is_device_sensor *device)
 	set_bit(FIMC_IS_SENSOR_BACK_NOWAIT_STOP, &device->state);
 
 p_err:
+	/*
+	 * Set only in fimc_is_sensor_open() and never cleared, so it outlived
+	 * the video context it points at. FIMC_BUG(!sensor->vctx) in
+	 * fimc_is_devicemgr_open() is a NULL check, so a stale non-NULL
+	 * pointer walks past it and faults on sensor->vctx->next_device.
+	 */
+	device->vctx = NULL;
 	minfo("[SEN:D] %s():%d\n", device, __func__, ret);
 	return ret;
 }

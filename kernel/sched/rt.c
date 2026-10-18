@@ -676,7 +676,6 @@ int alloc_rt_sched_group(struct task_group *tg, struct task_group *parent)
 #ifdef CONFIG_SMP
 
 #include "sched-pelt.h"
-#define entity_is_task(se)	(!se->my_q)
 
 extern u64 decay_load(u64 val, u64 n);
 
@@ -2403,7 +2402,7 @@ static void put_prev_task_rt(struct rq *rq, struct task_struct *p)
 void rt_rq_util_change(struct rt_rq *rt_rq)
 {
 	if (&this_rq()->rt == rt_rq)
-		cpufreq_update_util(rt_rq->rq, SCHED_CPUFREQ_RT);
+		cpufreq_update_util(rq_of_rt_rq(rt_rq), SCHED_CPUFREQ_RT);
 }
 
 #ifdef CONFIG_RT_GROUP_SCHED
@@ -2508,7 +2507,7 @@ void update_rt_load_avg(u64 now, struct sched_rt_entity *rt_se)
 	update_rt_rq_load_avg(now, cpu, rt_rq, rt_rq->curr == rt_se);
 	propagate_entity_rt_load_avg(rt_se);
 
-	if (entity_is_task(rt_se))
+	if (rt_entity_is_task(rt_se))
 		trace_sched_rt_load_avg_task(rt_task_of(rt_se), &rt_se->avg);
 }
 

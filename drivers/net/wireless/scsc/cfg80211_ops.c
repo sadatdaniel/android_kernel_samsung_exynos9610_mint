@@ -15,6 +15,8 @@
 #include "netif.h"
 #include "unifiio.h"
 #include "mib.h"
+#include "ioctl.h"
+#include <linux/suspend.h>
 
 #ifdef CONFIG_SCSC_WLAN_ANDROID
 #include "scsc_wifilogger_rings.h"
@@ -1889,21 +1891,100 @@ int slsi_set_monitor_channel(struct wiphy *wiphy, struct cfg80211_chan_def *chan
 	return 0;
 }
 
+static int slsi_system_sleep_prepare(struct wiphy *wiphy)
+{
+	struct slsi_dev *sdev = SDEV_FROM_WIPHY(wiphy);
+	struct net_device *dev;
+	int previous, ret, restore_ret;
+
+	/* A failed restoration must not silently become the next baseline. */
+	if (sdev->system_sleep_wifi_prepared)
+		return -EBUSY;
+	/* The PM notifier holds RTNL, keeping interface registration stable. */
+	dev = slsi_get_netdev(sdev, SLSI_NET_INDEX_WLAN);
+	if (!dev || !netif_running(dev) ||
+	    sdev->device_state != SLSI_DEVICE_STATE_STARTED)
+		return 0;
+
+	SLSI_MUTEX_LOCK(sdev->device_config_mutex);
+	previous = sdev->device_config.user_suspend_mode;
+	SLSI_MUTEX_UNLOCK(sdev->device_config_mutex);
+	/* Preserve an Android caller's already prepared sleep state. */
+	if (previous)
+		return 0;
+
+	ret = slsi_set_host_suspend_mode(dev, 1);
+	if (ret) {
+		/* A failing prepare notifier is excluded from PM rollback. */
+		restore_ret = slsi_set_host_suspend_mode(dev, previous);
+		sdev->system_sleep_wifi_prepared = restore_ret != 0;
+		SLSI_ERR(sdev, "system sleep: Wi-Fi prepare=%d rollback=%d\n",
+			 ret, restore_ret);
+		return ret;
+	}
+	sdev->system_sleep_wifi_prepared = true;
+	SLSI_INFO(sdev, "system sleep: Wi-Fi prepared\n");
+	return 0;
+}
+
+static int slsi_system_sleep_restore(struct wiphy *wiphy)
+{
+	struct slsi_dev *sdev = SDEV_FROM_WIPHY(wiphy);
+	struct net_device *dev;
+	int ret = 0;
+
+	if (!sdev->system_sleep_wifi_prepared)
+		return 0;
+	dev = slsi_get_netdev(sdev, SLSI_NET_INDEX_WLAN);
+	if (dev && netif_running(dev) &&
+	    sdev->device_state == SLSI_DEVICE_STATE_STARTED)
+		ret = slsi_set_host_suspend_mode(dev, 0);
+	if (!ret)
+		sdev->system_sleep_wifi_prepared = false;
+	SLSI_INFO(sdev, "system sleep: Wi-Fi restore=%d\n", ret);
+	return ret;
+}
+
+static int slsi_system_sleep_notify(struct notifier_block *nb,
+                                   unsigned long event, void *unused)
+{
+	struct slsi_dev *sdev = container_of(nb, struct slsi_dev, system_sleep_notifier);
+	int ret;
+
+	(void)unused;
+	if (event != PM_SUSPEND_PREPARE && event != PM_POST_SUSPEND)
+		return NOTIFY_DONE;
+	rtnl_lock();
+	if (event == PM_SUSPEND_PREPARE)
+		ret = slsi_system_sleep_prepare(sdev->wiphy);
+	else
+		ret = slsi_system_sleep_restore(sdev->wiphy);
+	rtnl_unlock();
+	/* A restore failure must not stop other devices' POST callbacks. */
+	return event == PM_SUSPEND_PREPARE ? notifier_from_errno(ret) : NOTIFY_OK;
+}
+
+int slsi_system_sleep_register(struct slsi_dev *sdev)
+{
+	sdev->system_sleep_notifier.notifier_call = slsi_system_sleep_notify;
+	return register_pm_notifier(&sdev->system_sleep_notifier);
+}
+
+void slsi_system_sleep_unregister(struct slsi_dev *sdev)
+{
+	unregister_pm_notifier(&sdev->system_sleep_notifier);
+}
+
 int slsi_suspend(struct wiphy *wiphy, struct cfg80211_wowlan *wow)
 {
-	SLSI_UNUSED_PARAMETER(wow);
-
+	(void)wiphy;
+	(void)wow;
 	return 0;
 }
 
 int slsi_resume(struct wiphy *wiphy)
 {
-	struct slsi_dev *sdev = SDEV_FROM_WIPHY(wiphy);
-
-	/* Scheduling the IO thread */
-/*	(void)slsi_hip_run_bh(sdev); */
-	SLSI_UNUSED_PARAMETER(sdev);
-
+	(void)wiphy;
 	return 0;
 }
 

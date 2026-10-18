@@ -911,10 +911,17 @@ module_platform_driver(samsung_abox_if_driver);
 int abox_if_hw_params_fixup_by_dai(struct snd_soc_dai *dai,
 		struct snd_pcm_hw_params *params, int stream)
 {
-	struct device *dev = dai->dev;
-	struct abox_if_data *data = dev_get_drvdata(dev);
+	struct device *dev;
+	struct abox_if_data *data;
 	unsigned int rate, channels, width;
 	int ret = 0;
+
+	/* callers walk DAPM widget lists; not every widget carries a DAI */
+	if (!dai)
+		return -EINVAL;
+
+	dev = dai->dev;
+	data = dev_get_drvdata(dev);
 
 	if (dev->driver != &samsung_abox_if_driver.driver)
 		return -EINVAL;

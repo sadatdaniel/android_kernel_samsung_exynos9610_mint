@@ -1276,6 +1276,8 @@ struct slsi_dev {
 	u8                         netdev_addresses[CONFIG_SCSC_WLAN_MAX_INTERFACES + 1][ETH_ALEN];  /* 0 is reserved */
 	bool                       require_vif_delete[CONFIG_SCSC_WLAN_MAX_INTERFACES + 1];
 	int                        device_state;
+	bool                       system_sleep_wifi_prepared;
+	struct notifier_block      system_sleep_notifier;
 
 	/* traffic mon */
 	u32				           agg_dev_throughput_tx;

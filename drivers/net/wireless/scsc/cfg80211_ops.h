@@ -27,6 +27,8 @@ struct slsi_dev;
 
 struct slsi_dev *slsi_cfg80211_new(struct device *dev);
 int slsi_cfg80211_register(struct slsi_dev *sdev);
+int slsi_system_sleep_register(struct slsi_dev *sdev);
+void slsi_system_sleep_unregister(struct slsi_dev *sdev);
 void slsi_cfg80211_unregister(struct slsi_dev *sdev);
 void slsi_cfg80211_free(struct slsi_dev *sdev);
 void slsi_cfg80211_update_wiphy(struct slsi_dev *sdev);

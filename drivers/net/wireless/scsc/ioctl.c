@@ -319,26 +319,17 @@ void slsi_update_multicast_addr(struct slsi_dev *sdev, struct net_device *dev)
 	slsi_mlme_set_multicast_ip(sdev, dev, multicast_ip_list, size);
 }
 
-static int slsi_set_suspend_mode(struct net_device *dev, char *command, int cmd_len)
+int slsi_set_host_suspend_mode(struct net_device *dev, int user_suspend_mode)
 {
 	struct netdev_vif *netdev_vif = netdev_priv(dev);
 	struct slsi_dev   *sdev = netdev_vif->sdev;
-	struct slsi_ioctl_args *ioctl_args = NULL;
-	int               user_suspend_mode;
 	int               previous_suspend_mode;
 	u8                host_state;
 	int               ret = 0;
 	int vif;
 
-	ioctl_args = slsi_get_private_command_args(command, cmd_len, 1);
-	SLSI_VERIFY_IOCTL_ARGS(sdev, ioctl_args);
-
-	user_suspend_mode = *ioctl_args->args[0] - '0';
-	if (user_suspend_mode != 0 && user_suspend_mode != 1) {
-		SLSI_ERR(sdev, "Invalid value of user_suspend_mode %d\n", user_suspend_mode);
-		kfree(ioctl_args);
+	if (user_suspend_mode != 0 && user_suspend_mode != 1)
 		return -EINVAL;
-	}
 
 	SLSI_MUTEX_LOCK(sdev->device_config_mutex);
 	previous_suspend_mode = sdev->device_config.user_suspend_mode;
@@ -393,7 +384,21 @@ static int slsi_set_suspend_mode(struct net_device *dev, char *command, int cmd_
 		SLSI_NET_ERR(dev, "Error in setting the Host State, ret=%d", ret);
 
 	SLSI_MUTEX_UNLOCK(sdev->device_config_mutex);
-	kfree(ioctl_args);
+	return ret;
+}
+
+static int slsi_set_suspend_mode(struct net_device *dev, char *command, int cmd_len)
+{
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	struct slsi_dev *sdev = ndev_vif->sdev;
+	struct slsi_ioctl_args *args;
+	int mode, ret;
+
+	args = slsi_get_private_command_args(command, cmd_len, 1);
+	SLSI_VERIFY_IOCTL_ARGS(sdev, args);
+	mode = *args->args[0] - '0';
+	ret = slsi_set_host_suspend_mode(dev, mode);
+	kfree(args);
 	return ret;
 }
 

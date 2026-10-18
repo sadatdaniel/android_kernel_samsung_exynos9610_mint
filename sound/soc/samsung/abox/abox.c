@@ -3288,10 +3288,31 @@ skip_capture:
 		list_for_each_entry(w, &widget_list, work_list) {
 			struct snd_soc_dai *dai;
 
+			/*
+			 * w->priv only holds a snd_soc_dai for DAI widgets -
+			 * soc-dapm.c sets it in snd_soc_dapm_new_dai_widgets()
+			 * and nowhere else. Every widget with a stream name
+			 * reaches this loop though, AIF widgets included, and
+			 * for those w->priv is not a DAI at all. Guard it the
+			 * way ASoC's own snd_soc_dapm_connect_dai_link_widgets()
+			 * does, or abox_if_hw_params_fixup_by_dai() dereferences
+			 * a non-DAI pointer at dai->dev.
+			 */
+			switch (w->id) {
+			case snd_soc_dapm_dai_in:
+			case snd_soc_dapm_dai_out:
+				break;
+			default:
+				continue;
+			}
+
 			if (!w->sname)
 				continue;
 
 			dai = w->priv;
+			if (!dai)
+				continue;
+
 			if (abox_if_hw_params_fixup_by_dai(dai, params, stream)
 					>= 0) {
 				abox_set_sif_auto_config(data, msg_rate, true);
@@ -5327,6 +5348,18 @@ static int abox_request_firmware(struct device *dev,
 	return ret;
 }
 
+/*
+ * The firmware is on the vendor partition (firmware_class.path), which is
+ * mounted seconds after this first request at ~1.4 s. Retry a direct load
+ * instead of leaving the DSP in reset for the rest of the boot.
+ */
+#define ABOX_FW_RETRY_MS	1000
+#define ABOX_FW_RETRY_MAX	120
+static struct platform_device *abox_fw_retry_pdev;
+static int abox_fw_retries;
+static void abox_retry_sram_firmware(struct work_struct *work);
+static DECLARE_DELAYED_WORK(abox_fw_retry_work, abox_retry_sram_firmware);
+
 static void abox_complete_sram_firmware_request(const struct firmware *fw,
 		void *context)
 {
@@ -5335,9 +5368,19 @@ static void abox_complete_sram_firmware_request(const struct firmware *fw,
 	struct abox_data *data = platform_get_drvdata(pdev);
 
 	if (!fw) {
+		if (abox_fw_retries < ABOX_FW_RETRY_MAX) {
+			abox_fw_retries++;
+			abox_fw_retry_pdev = pdev;
+			schedule_delayed_work(&abox_fw_retry_work,
+					msecs_to_jiffies(ABOX_FW_RETRY_MS));
+			return;
+		}
 		dev_err(dev, "Failed to request firmware\n");
 		return;
 	}
+	if (abox_fw_retries)
+		dev_info(dev, "SRAM firmware found after %d retries\n",
+				abox_fw_retries);
 
 	if (data->firmware_sram)
 		release_firmware(data->firmware_sram);
@@ -5352,6 +5395,16 @@ static void abox_complete_sram_firmware_request(const struct firmware *fw,
 	if (abox_test_quirk(data, ABOX_QUIRK_OFF_ON_SUSPEND))
 		if (pm_runtime_active(dev))
 			abox_enable(dev);
+}
+
+static void abox_retry_sram_firmware(struct work_struct *work)
+{
+	struct platform_device *pdev = abox_fw_retry_pdev;
+	const struct firmware *fw = NULL;
+
+	if (request_firmware_direct(&fw, "calliope_sram.bin", &pdev->dev))
+		fw = NULL;
+	abox_complete_sram_firmware_request(fw, pdev);
 }
 
 static int abox_download_firmware(struct platform_device *pdev)

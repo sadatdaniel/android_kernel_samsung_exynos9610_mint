@@ -1049,11 +1049,17 @@ static int fimc_is_group_task_stop(struct fimc_is_groupmgr *groupmgr,
 	set_bit(FIMC_IS_GTASK_REQUEST_STOP, &gtask->state);
 
 
+	/* The up() below must not depend on the wait list being non-empty:
+	 * the worker downs smp_resource only after passing its first
+	 * REQUEST_STOP check, so a stop racing that window sees an empty
+	 * list, skips the release, and kthread_stop() waits forever on a
+	 * down() that nothing will complete again.
+	 */
 	if (!list_empty(&gtask->smp_resource.wait_list)) {
 		warn("gtask(%d) is not empty", gtask->id);
 		fimc_is_kernel_log_dump(false);
-		up(&gtask->smp_resource);
 	}
+	up(&gtask->smp_resource);
 
 	/*
 	 * flush kthread wait until all work is complete
@@ -1835,6 +1841,14 @@ int fimc_is_group_close(struct fimc_is_groupmgr *groupmgr,
 		mgerr("already close", group, group);
 		return -EMFILE;
 	}
+
+	/* Sync-shot works block on the closing group's trigger semaphore
+	 * (fimc_is_group_shot: down_interruptible(&group->smp_trigger));
+	 * release them before stopping the worker, or kthread_stop() can
+	 * wait forever. Harmless when nobody waits: group_init re-inits
+	 * the semaphore and the REQUEST_STOP checks make the worker bail.
+	 */
+	up(&group->smp_trigger);
 
 	ret = fimc_is_group_task_stop(groupmgr, gtask, slot);
 	if (ret)
