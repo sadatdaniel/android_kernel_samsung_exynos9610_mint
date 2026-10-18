@@ -20,14 +20,19 @@ jobs:
           git checkout -q FETCH_HEAD
           git fetch -q --depth 2 origin d159cfba9856a82aa4338398f28f04df95e1acb1
           git log -1 --oneline HEAD
-      - name: Bare config, with and without the dependency fix
+      - name: savedefconfig with the vendor environment, then bare expansion
         run: |
           set -euo pipefail
           cd k
           sudo apt-get -qq install -y flex bison >/dev/null
+          norm() { grep -v '^#' "$1" | grep . | sort; }
           cp arch/arm64/configs/halium_a50_defconfig /tmp/tested.config
-          run() { make -s ARCH=arm64 halium_a50_defconfig >/dev/null; grep -v '^#' .config | grep . | sort > "/tmp/$1"; }
-          diff_report() { echo "== $1"; diff <(grep -v '^#' /tmp/tested.config | grep . | sort) "/tmp/$1" || true; }
-          run plain.config; diff_report plain.config
-          git -c user.name=x -c user.email=x@x cherry-pick -X theirs d159cfba9856a82aa4338398f28f04df95e1acb1 >/dev/null 2>&1 || { git cherry-pick --abort; echo "cherry-pick failed"; exit 1; }
-          run fixed.config; diff_report fixed.config
+          cp /tmp/tested.config .config
+          ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0 make ARCH=arm64 olddefconfig savedefconfig >/dev/null
+          echo "== vendor-env olddefconfig vs tested"; diff <(norm /tmp/tested.config) <(norm .config) || true
+          wc -l defconfig; cp defconfig /tmp/halium_a50_defconfig
+          bare() { cp /tmp/halium_a50_defconfig arch/arm64/configs/halium_a50_defconfig; rm -f .config; env -u ANDROID_MAJOR_VERSION -u PLATFORM_VERSION make ARCH=arm64 halium_a50_defconfig >/dev/null; echo "== bare ($1) vs tested"; diff <(norm /tmp/tested.config) <(norm .config) || true; }
+          bare plain
+          git checkout -q -- arch/arm64/configs/halium_a50_defconfig
+          git -c user.name=x -c user.email=x@x cherry-pick d159cfba9856a82aa4338398f28f04df95e1acb1
+          bare with-d159cfba
