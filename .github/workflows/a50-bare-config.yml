@@ -28,7 +28,8 @@ jobs:
           norm() { grep -v '^#' "$1" | grep . | sort; }
           cp arch/arm64/configs/halium_a50_defconfig /tmp/tested.config
           cp /tmp/tested.config .config
-          ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0 make ARCH=arm64 olddefconfig savedefconfig >/dev/null
+          ls -la KernelSU drivers/kernelsu 2>&1 | head -4 || true
+          ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0 make ARCH=arm64 olddefconfig savedefconfig 2>&1 | grep -vE "dangling|cv_stack|check_top|zconf|inlined|In function|^ +[0-9]* [|]|^ +[|]" | tail -20
           echo "== vendor-env olddefconfig vs tested"; diff <(norm /tmp/tested.config) <(norm .config) || true
           wc -l defconfig; cp defconfig /tmp/halium_a50_defconfig
           bare() { cp /tmp/halium_a50_defconfig arch/arm64/configs/halium_a50_defconfig; rm -f .config; env -u ANDROID_MAJOR_VERSION -u PLATFORM_VERSION make ARCH=arm64 halium_a50_defconfig >/dev/null; echo "== bare ($1) vs tested"; diff <(norm /tmp/tested.config) <(norm .config) || true; }
