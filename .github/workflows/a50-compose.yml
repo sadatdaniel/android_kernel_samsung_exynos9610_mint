@@ -1,0 +1,42 @@
+name: a50 compose conventional branch
+
+# Tested tree + the two commits a bare make needs + savedefconfig + the guide's
+# halium.config, pushed only if bare `make halium_a50_defconfig halium.config`
+# (deviceinfo_kernel_defconfig) reproduces the tested .config exactly.
+on:
+  push:
+    branches: [halium-a50-config]
+
+permissions:
+  contents: write
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Compose and gate
+        run: |
+          set -euo pipefail
+          git init -q k && cd k
+          git remote add origin "https://github.com/${{ github.repository }}"
+          git fetch -q --depth 1 origin halium-a50-aa17rf2
+          git checkout -q FETCH_HEAD
+          git fetch -q --depth 2 origin 57ba2d49609515647dd5300e154da5402b90fcfe d159cfba9856a82aa4338398f28f04df95e1acb1 85556abfa9fc9b0d3da9811f84515d315052acb9
+          sudo apt-get -qq install -y flex bison >/dev/null
+          git config user.name "a50 kernel tree"; git config user.email "noreply@users.noreply.github.com"
+          git cherry-pick 57ba2d49609515647dd5300e154da5402b90fcfe d159cfba9856a82aa4338398f28f04df95e1acb1
+          norm() { grep -v '^#' "$1" | grep . | sort; }
+          cp arch/arm64/configs/halium_a50_defconfig /tmp/tested.config
+          cp /tmp/tested.config .config
+          ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0 make -s ARCH=arm64 olddefconfig savedefconfig 2>/dev/null
+          cp defconfig arch/arm64/configs/halium_a50_defconfig
+          git checkout 85556abfa9fc9b0d3da9811f84515d315052acb9 -- arch/arm64/configs/halium.config
+          rm -f .config defconfig
+          env -u ANDROID_MAJOR_VERSION -u PLATFORM_VERSION make -s ARCH=arm64 halium_a50_defconfig halium.config 2>/dev/null
+          diff <(norm /tmp/tested.config) <(norm .config)
+          rm -f .config
+          git add arch/arm64/configs/halium_a50_defconfig arch/arm64/configs/halium.config
+          git commit -q -m "arm64/configs: halium_a50_defconfig from the tested runtime-firmware build" -m "savedefconfig of the halium-a50-aa17rf2 .config; with the guide's halium.config, a bare make reproduces it exactly."
+          git push "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:refs/heads/halium-a50-ut
+          git log --oneline -4
