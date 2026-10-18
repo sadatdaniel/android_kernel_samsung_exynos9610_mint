@@ -18,7 +18,7 @@ jobs:
           git remote add origin "https://github.com/${{ github.repository }}"
           git fetch -q --depth 1 origin halium-a50-aa17rf2
           git checkout -q FETCH_HEAD
-          git fetch -q --depth 2 origin d159cfba98568fe62bd29c2ec20cb31f8bca8836
+          git fetch -q --depth 2 origin d159cfba9856a82aa4338398f28f04df95e1acb1
           git log -1 --oneline HEAD
       - name: Bare config, with and without the dependency fix
         run: |
@@ -29,5 +29,5 @@ jobs:
           run() { make -s ARCH=arm64 halium_a50_defconfig >/dev/null; grep -v '^#' .config | grep . | sort > "/tmp/$1"; }
           diff_report() { echo "== $1"; diff <(grep -v '^#' /tmp/tested.config | grep . | sort) "/tmp/$1" || true; }
           run plain.config; diff_report plain.config
-          git -c user.name=x -c user.email=x@x cherry-pick -X theirs d159cfba98568fe62bd29c2ec20cb31f8bca8836 >/dev/null 2>&1 || { git cherry-pick --abort; echo "cherry-pick failed"; exit 1; }
+          git -c user.name=x -c user.email=x@x cherry-pick -X theirs d159cfba9856a82aa4338398f28f04df95e1acb1 >/dev/null 2>&1 || { git cherry-pick --abort; echo "cherry-pick failed"; exit 1; }
           run fixed.config; diff_report fixed.config
