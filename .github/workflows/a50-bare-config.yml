@@ -19,6 +19,8 @@ jobs:
           git fetch -q --depth 1 origin halium-a50-aa17rf2
           git checkout -q FETCH_HEAD
           git fetch -q --depth 2 origin d159cfba9856a82aa4338398f28f04df95e1acb1
+          git fetch -q --depth 2 origin 57ba2d49609515647dd5300e154da5402b90fcfe
+          git -c user.name=x -c user.email=x@x cherry-pick 57ba2d49609515647dd5300e154da5402b90fcfe
           git log -1 --oneline HEAD
       - name: savedefconfig with the vendor environment, then bare expansion
         run: |
