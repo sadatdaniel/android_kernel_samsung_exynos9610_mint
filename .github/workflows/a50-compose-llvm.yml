@@ -1,0 +1,32 @@
+name: a50 compose LLVM branch
+
+# halium-a50-ut + the old branch's LLVM=1 build fixes, for the UBports tools'
+# Google clang. The one config change: CONFIG_LLVM_POLLY (Proton-only) dropped.
+on:
+  push:
+    branches: [halium-a50-llvm-tools]
+
+permissions:
+  contents: write
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Compose and push
+        run: |
+          set -euo pipefail
+          git init -q k && cd k
+          git remote add origin "https://github.com/${{ github.repository }}"
+          git fetch -q --depth 4 origin halium-a50-ut
+          git checkout -q FETCH_HEAD
+          PICKS="032eef522c735b8f75511668c0d31519da628998 27574ba33f774380f591481343f159059b23d5fd 9d42aa5355c5cd9e2ea30a7f15a407cf1cde1205 1a87b7b07cccea74eca0c45cd25db1f05caca041 af42a48d6bf35713a24d3892004de830f5e8e758 e9e60317f3618ca77968b4d3544a5202cbe73229 a9ecc9b155463df363e7291c1a09835ce85639ab 9f697edbd34281281d331a1ed7bf7d6525b25e7c d25a56a60ff0ce699f90456739b5af953c2a030b"
+          git fetch -q --depth 2 origin $PICKS
+          git config user.name "a50 kernel tree"; git config user.email "noreply@users.noreply.github.com"
+          git cherry-pick $PICKS
+          grep -n LLVM_POLLY arch/arm64/configs/halium_a50_defconfig || true
+          sed -i '/^CONFIG_LLVM_POLLY=y$/d' arch/arm64/configs/halium_a50_defconfig
+          git commit -q -am "arm64/configs: halium_a50_defconfig: drop CONFIG_LLVM_POLLY for Google clang" || true
+          git push "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:refs/heads/halium-a50-ut-llvm
+          git log --oneline -12
