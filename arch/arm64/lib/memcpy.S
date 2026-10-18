@@ -68,9 +68,11 @@
 	stp \ptr, \regB, [\regC], \val
 	.endm
 
-	.weak memcpy
+/* weak memcpy as a plain label: a second .globl after .weak is an error for
+ * clang's integrated assembler (upstream: SYM_FUNC_START_WEAK_PI). */
 ENTRY(__memcpy)
-ENTRY(memcpy)
+	.weak memcpy
+memcpy:
 #include "copy_template.S"
 	ret
 ENDPIPROC(memcpy)
