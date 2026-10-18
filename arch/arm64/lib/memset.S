@@ -54,9 +54,11 @@ dst		.req	x8
 tmp3w		.req	w9
 tmp3		.req	x9
 
-	.weak memset
+/* weak memset as a plain label: a second .globl after .weak is an error for
+ * clang's integrated assembler (upstream: SYM_FUNC_START_WEAK_PI). */
 ENTRY(__memset)
-ENTRY(memset)
+	.weak memset
+memset:
 	mov	dst, dstin	/* Preserve return value.  */
 	and	A_lw, val, #255
 	orr	A_lw, A_lw, A_lw, lsl #8
