@@ -21,6 +21,8 @@ ccflags-y               += -Werror
 # below under this -Werror; keep the build working with the LLVM toolchain
 # the Ubuntu Touch adaptation tools use.
 ccflags-y               += -Wno-error=ignored-optimization-argument
+# clang >= 13 adds -Wunused-but-set-variable, which this vendor driver trips.
+ccflags-y               += $(call cc-disable-warning, unused-but-set-variable)
 ifdef TFADSP_32BITS
 ccflags-y               += -DTFADSP_32BITS
 endif
